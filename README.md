@@ -61,9 +61,9 @@ The runtime returns a JSON list of extracted contexts:
 
 ## Skills
 A dedicated parsing skill prompt exists at:
-- `/home/runner/work/asset-parser-demo/asset-parser-demo/skills/asset-content-parser/SKILL.md`
+- `skills/asset-content-parser/SKILL.md`
 
 Prompt templates used by the runtime are in:
-- `/home/runner/work/asset-parser-demo/asset-parser-demo/asset_parser/prompts/website_prompt.md`
-- `/home/runner/work/asset-parser-demo/asset-parser-demo/asset_parser/prompts/pdf_prompt.md`
-- `/home/runner/work/asset-parser-demo/asset-parser-demo/asset_parser/prompts/image_prompt.md`
+- `asset_parser/prompts/website_prompt.md`
+- `asset_parser/prompts/pdf_prompt.md`
+- `asset_parser/prompts/image_prompt.md`

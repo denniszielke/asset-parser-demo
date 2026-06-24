@@ -40,7 +40,7 @@ def _file_name_from_url(url: str) -> str:
     if "." not in candidate:
         suffix = mimetypes.guess_extension(parsed.path.split(".")[-1]) if "." in parsed.path else ""
         candidate += suffix or ""
-    digest = hashlib.sha1(url.encode("utf-8")).hexdigest()[:8]
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:8]
     return f"{digest}_{candidate}"
 
 
