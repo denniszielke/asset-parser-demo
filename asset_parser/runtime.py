@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .model_client import extract_json_with_model
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -53,14 +56,43 @@ def _detect_type(file_path: Path, content_type: str | None) -> str:
 
 
 def _download(url: str, working_dir: Path) -> tuple[Path, str | None]:
+    """Download *url* into *working_dir*, streaming to avoid large memory spikes.
+
+    Falls back to ``verify=False`` when SSL certificate verification fails so
+    the tool works in environments with self-signed or missing CA certificates.
+    A warning is emitted in that case.
+    """
     import httpx
 
     target = working_dir / _file_name_from_url(url)
-    with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-        response = client.get(url)
-        response.raise_for_status()
-        target.write_bytes(response.content)
-        return target, response.headers.get("content-type")
+
+    def _stream(verify: bool) -> tuple[str | None]:  # type: ignore[return]
+        with httpx.Client(timeout=120.0, follow_redirects=True, verify=verify) as client:
+            with client.stream("GET", url) as response:
+                response.raise_for_status()
+                content_type = response.headers.get("content-type")
+                with target.open("wb") as fh:
+                    for chunk in response.iter_bytes(chunk_size=65536):
+                        fh.write(chunk)
+                return content_type
+
+    try:
+        content_type = _stream(verify=True)
+    except Exception as exc:
+        ssl_related = "certificate" in str(exc).lower() or "ssl" in str(exc).lower()
+        if ssl_related:
+            logger.warning(
+                "SSL verification failed for %s (%s); retrying without verification.", url, exc
+            )
+            if target.exists():
+                target.unlink()
+            content_type = _stream(verify=False)
+        else:
+            if target.exists():
+                target.unlink()
+            raise
+
+    return target, content_type
 
 
 def _extract_website(file_path: Path) -> str:
@@ -73,24 +105,51 @@ def _extract_website(file_path: Path) -> str:
 
 
 def _extract_pdf(file_path: Path) -> str:
+    """Extract text and metadata from a PDF file.
+
+    Returns a string that begins with a metadata header (title, author,
+    page count, creation date when available) followed by per-page text.
+    Using ``get_text("blocks")`` preserves the reading order for
+    multi-column layouts better than the default ``"text"`` mode.
+    """
     import fitz
 
-    pages: list[str] = []
+    sections: list[str] = []
     with fitz.open(file_path) as document:
+        meta = document.metadata or {}
+        meta_lines: list[str] = [f"Pages: {document.page_count}"]
+        for key in ("title", "author", "creationDate", "subject", "keywords"):
+            value = meta.get(key, "").strip()
+            if value:
+                meta_lines.append(f"{key.capitalize()}: {value}")
+        sections.append("Metadata:\n" + "\n".join(meta_lines))
+
         for index, page in enumerate(document, start=1):
-            text = page.get_text("text").strip()
-            if text:
-                pages.append(f"Page {index}:\n{text}")
-    return "\n\n".join(pages).strip()
+            blocks = page.get_text("blocks")  # type: ignore[arg-type]
+            # Each block is (x0, y0, x1, y1, text, block_no, block_type)
+            # block_type 0 = text; sort by vertical then horizontal position
+            text_blocks = sorted(
+                (b for b in blocks if b[6] == 0),
+                key=lambda b: (round(b[1] / 20) * 20, b[0]),
+            )
+            page_text = "\n".join(b[4].strip() for b in text_blocks if b[4].strip())
+            if page_text:
+                sections.append(f"Page {index}:\n{page_text}")
+
+    return "\n\n".join(sections).strip()
 
 
 def _extract_image(file_path: Path) -> str:
+    """Return basic metadata for an image file (dimensions, mode, format)."""
     from PIL import Image
 
     with Image.open(file_path) as image:
         width, height = image.size
         mode = image.mode
-    return f"Image file with dimensions {width}x{height} and color mode {mode}."
+        fmt = image.format or file_path.suffix.lstrip(".").upper() or "unknown"
+    return (
+        f"Image file: format={fmt}, dimensions={width}x{height}, color_mode={mode}."
+    )
 
 
 def _llm_enrich(
