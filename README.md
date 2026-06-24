@@ -29,10 +29,6 @@ You can copy `.env.example` to `.env` and fill in the values.
 
 If `FOUNDRY_API_KEY` is not set, `DefaultAzureCredential` is used.
 
-## Example env file
-
-`.env.example`
-
 ## Usage
 
 ```bash
