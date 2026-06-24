@@ -16,6 +16,7 @@ pip install -r requirements.txt
 ## Configuration
 
 Use one of the following model providers.
+You can copy `.env.example` to `.env` and fill in the values.
 
 ### GitHub Models
 - `GITHUB_TOKEN` (required)
@@ -27,6 +28,12 @@ Use one of the following model providers.
 - `MODEL_NAME` (model deployment name)
 
 If `FOUNDRY_API_KEY` is not set, `DefaultAzureCredential` is used.
+
+## Example env file
+
+`.env.example`
+
+Dependency versions were checked against PyPI; `agent-framework-foundry` was updated to `1.8.2` and the other pinned versions are already current.
 
 ## Usage
 

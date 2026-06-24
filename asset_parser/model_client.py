@@ -4,6 +4,10 @@ import json
 import os
 from typing import Any
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 def _foundry_token() -> str:
     from azure.identity import DefaultAzureCredential, get_bearer_token_provider
 
