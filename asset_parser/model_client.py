@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from dotenv import load_dotenv
 
+if TYPE_CHECKING:
+    from openai import OpenAI
+
 load_dotenv()
+
 
 def _foundry_token() -> str:
     from azure.identity import DefaultAzureCredential, get_bearer_token_provider
