@@ -1,7 +1,6 @@
 import argparse
 import hashlib
 import json
-import mimetypes
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -38,8 +37,7 @@ def _file_name_from_url(url: str) -> str:
     parsed = urlparse(url)
     candidate = os.path.basename(parsed.path) or "downloaded_asset"
     if "." not in candidate:
-        suffix = mimetypes.guess_extension(parsed.path.split(".")[-1]) if "." in parsed.path else ""
-        candidate += suffix or ""
+        candidate += ".bin"
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:8]
     return f"{digest}_{candidate}"
 

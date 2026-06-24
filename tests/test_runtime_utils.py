@@ -7,10 +7,10 @@ from asset_parser.runtime import _detect_type, _extract_website
 
 class RuntimeUtilsTests(unittest.TestCase):
     def test_detect_type_pdf_by_extension(self) -> None:
-        self.assertEqual(_detect_type(Path('/tmp/doc.pdf'), 'application/octet-stream'), 'pdf')
+        self.assertEqual(_detect_type(Path('doc.pdf'), 'application/octet-stream'), 'pdf')
 
     def test_detect_type_image_by_header(self) -> None:
-        self.assertEqual(_detect_type(Path('/tmp/blob.bin'), 'image/png'), 'image')
+        self.assertEqual(_detect_type(Path('blob.bin'), 'image/png'), 'image')
 
     def test_extract_website_removes_script(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
