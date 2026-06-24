@@ -33,8 +33,6 @@ If `FOUNDRY_API_KEY` is not set, `DefaultAzureCredential` is used.
 
 `.env.example`
 
-Dependency versions were checked against PyPI; `agent-framework-foundry` was updated to `1.8.2` and the other pinned versions are already current.
-
 ## Usage
 
 ```bash
