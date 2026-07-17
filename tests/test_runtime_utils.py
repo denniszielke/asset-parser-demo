@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from asset_parser.runtime import _detect_type, _extract_website
+from asset_parser.runtime import _detect_type, _extract_pdf, _extract_website
 
 
 class RuntimeUtilsTests(unittest.TestCase):
@@ -23,6 +23,13 @@ class RuntimeUtilsTests(unittest.TestCase):
             self.assertIn('Hello', text)
             self.assertIn('World', text)
             self.assertNotIn('alert', text)
+
+    def test_extract_pdf_includes_page_markers(self) -> None:
+        pdf_path = Path('tests/fixtures/work_trend_index_2026.pdf')
+        self.assertTrue(pdf_path.exists(), 'Expected test PDF fixture to exist')
+        extracted = _extract_pdf(pdf_path)
+        self.assertIn('[Page 1]', extracted)
+        self.assertIn('2026 Work Trend Index Annual Report', extracted)
 
 
 if __name__ == '__main__':

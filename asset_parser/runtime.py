@@ -80,7 +80,7 @@ def _extract_pdf(file_path: Path) -> str:
         for index, page in enumerate(document, start=1):
             text = page.get_text("text").strip()
             if text:
-                pages.append(f"Page {index}:\n{text}")
+                pages.append(f"[Page {index}]\n{text}")
     return "\n\n".join(pages).strip()
 
 
@@ -107,6 +107,8 @@ def _llm_enrich(
         "raw_content": extracted_content[:24000],
     }
     fallback_name = Path(urlparse(source_url).path).name or source_url
+    if not fallback_name:
+        fallback_name = source_type
     fallback_tags = [source_type]
 
     try:
