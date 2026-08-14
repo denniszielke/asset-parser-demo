@@ -39,6 +39,11 @@ python main.py \
   https://example.com
 ```
 
+### PDF extraction behavior
+- PDF files are parsed page-by-page with page markers in the extracted text (for example, `[Page 1]`).
+- The full extracted text is passed to the LLM prompt, then trimmed only if the model fails or returns incomplete data.
+- This helps preserve document structure for long reports like annual reviews and slide decks.
+
 ### Parameters
 - `urls` (positional): one or more remote URLs
 - `--working-dir`: local download folder (created if missing)

@@ -9,6 +9,9 @@ from urllib.parse import urlparse
 
 from .model_client import extract_json_with_model
 
+MAX_PROMPT_CHARS = 24000
+MAX_FALLBACK_CONTENT_CHARS = 4000
+
 
 @dataclass
 class ParsedContext:
@@ -47,6 +50,8 @@ def _detect_type(file_path: Path, content_type: str | None) -> str:
     suffix = file_path.suffix.lower()
     if "pdf" in ctype or suffix == ".pdf":
         return "pdf"
+    if "html" in ctype or "xml" in ctype or suffix in {".html", ".htm", ".xhtml", ".xml"}:
+        return "website"
     if "image" in ctype or suffix in {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp", ".tif", ".tiff"}:
         return "image"
     return "website"
@@ -73,14 +78,14 @@ def _extract_website(file_path: Path) -> str:
 
 
 def _extract_pdf(file_path: Path) -> str:
-    import fitz
+    import pymupdf
 
     pages: list[str] = []
-    with fitz.open(file_path) as document:
+    with pymupdf.open(file_path) as document:
         for index, page in enumerate(document, start=1):
             text = page.get_text("text").strip()
             if text:
-                pages.append(f"Page {index}:\n{text}")
+                pages.append(f"[Page {index}]\n{text}")
     return "\n\n".join(pages).strip()
 
 
@@ -104,9 +109,11 @@ def _llm_enrich(
     payload = {
         "url": source_url,
         "type": source_type,
-        "raw_content": extracted_content[:24000],
+        "raw_content": extracted_content[:MAX_PROMPT_CHARS],
     }
     fallback_name = Path(urlparse(source_url).path).name or source_url
+    if not fallback_name:
+        fallback_name = source_type
     fallback_tags = [source_type]
 
     try:
@@ -114,8 +121,8 @@ def _llm_enrich(
         return ParsedContext(
             name=str(result.get("name") or fallback_name),
             url=source_url,
-            tags=[str(tag) for tag in (result.get("tags") or fallback_tags)],
-            content=str(result.get("content") or extracted_content[:4000]),
+            tags=[str(tag).strip() for tag in (result.get("tags") or fallback_tags) if str(tag).strip()],
+            content=str(result.get("content") or extracted_content[:MAX_FALLBACK_CONTENT_CHARS]),
             type=source_type,
         )
     except Exception:
@@ -123,7 +130,7 @@ def _llm_enrich(
             name=fallback_name,
             url=source_url,
             tags=fallback_tags,
-            content=extracted_content[:4000],
+            content=extracted_content[:MAX_FALLBACK_CONTENT_CHARS],
             type=source_type,
         )
 
