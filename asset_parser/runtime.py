@@ -57,10 +57,12 @@ def _download(url: str, working_dir: Path) -> tuple[Path, str | None]:
 
     target = working_dir / _file_name_from_url(url)
     with httpx.Client(timeout=60.0, follow_redirects=True) as client:
-        response = client.get(url)
-        response.raise_for_status()
-        target.write_bytes(response.content)
-        return target, response.headers.get("content-type")
+        with client.stream("GET", url) as response:
+            response.raise_for_status()
+            with target.open("wb") as handle:
+                for chunk in response.iter_bytes():
+                    handle.write(chunk)
+            return target, response.headers.get("content-type")
 
 
 def _extract_website(file_path: Path) -> str:
@@ -107,7 +109,7 @@ def _llm_enrich(
         "raw_content": extracted_content[:24000],
     }
     fallback_name = Path(urlparse(source_url).path).name or source_url
-    fallback_tags = [source_type]
+    fallback_tags = [source_type, "pdf-report"] if source_type == "pdf" else [source_type]
 
     try:
         result = extract_json_with_model(model=model, prompt=prompt, user_payload=payload)
@@ -123,7 +125,7 @@ def _llm_enrich(
             name=fallback_name,
             url=source_url,
             tags=fallback_tags,
-            content=extracted_content[:4000],
+            content=(extracted_content[:4000] if source_type != "pdf" else extracted_content[:24000]),
             type=source_type,
         )
 

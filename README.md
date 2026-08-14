@@ -39,6 +39,15 @@ python main.py \
   https://example.com
 ```
 
+To test the PDF extraction path against the Work Trend Index report:
+
+```bash
+python main.py \
+  --working-dir ./working \
+  --model openai/gpt-4.1-mini \
+  https://assets-c4akfrf5b4d3f4b7.z01.azurefd.net/assets/2026/05/2026_Work_Trend_Index_Annual_Report_050526-7_69fc5b1c4e265.pdf
+```
+
 ### Parameters
 - `urls` (positional): one or more remote URLs
 - `--working-dir`: local download folder (created if missing)
