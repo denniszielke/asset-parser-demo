@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,13 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .model_client import extract_json_with_model
+
+logger = logging.getLogger(__name__)
+
+# Maximum number of characters of raw extracted content sent to the model for
+# enrichment. Large PDFs (e.g. multi-page reports) are truncated to this limit
+# to stay within typical model context windows.
+MAX_RAW_CONTENT_CHARS = 24000
 
 
 @dataclass
@@ -73,10 +81,10 @@ def _extract_website(file_path: Path) -> str:
 
 
 def _extract_pdf(file_path: Path) -> str:
-    import fitz
+    import pymupdf
 
     pages: list[str] = []
-    with fitz.open(file_path) as document:
+    with pymupdf.open(file_path) as document:
         for index, page in enumerate(document, start=1):
             text = page.get_text("text").strip()
             if text:
@@ -104,7 +112,7 @@ def _llm_enrich(
     payload = {
         "url": source_url,
         "type": source_type,
-        "raw_content": extracted_content[:24000],
+        "raw_content": extracted_content[:MAX_RAW_CONTENT_CHARS],
     }
     fallback_name = Path(urlparse(source_url).path).name or source_url
     fallback_tags = [source_type]
@@ -119,6 +127,12 @@ def _llm_enrich(
             type=source_type,
         )
     except Exception:
+        logger.warning(
+            "Model enrichment failed for %s (%s); falling back to raw extracted content.",
+            source_url,
+            source_type,
+            exc_info=True,
+        )
         return ParsedContext(
             name=fallback_name,
             url=source_url,
@@ -134,20 +148,33 @@ def parse_urls(urls: list[str], working_dir: str, model: str) -> list[dict[str, 
 
     contexts: list[dict[str, Any]] = []
     for url in urls:
-        downloaded_path, content_type = _download(url, work)
-        asset_type = _detect_type(downloaded_path, content_type)
+        try:
+            downloaded_path, content_type = _download(url, work)
+            asset_type = _detect_type(downloaded_path, content_type)
 
-        if asset_type == "pdf":
-            extracted = _extract_pdf(downloaded_path)
-            context = _llm_enrich(model, "pdf_prompt.md", asset_type, url, extracted)
-        elif asset_type == "image":
-            extracted = _extract_image(downloaded_path)
-            context = _llm_enrich(model, "image_prompt.md", asset_type, url, extracted)
-        else:
-            extracted = _extract_website(downloaded_path)
-            context = _llm_enrich(model, "website_prompt.md", asset_type, url, extracted)
+            if asset_type == "pdf":
+                extracted = _extract_pdf(downloaded_path)
+                context = _llm_enrich(model, "pdf_prompt.md", asset_type, url, extracted)
+            elif asset_type == "image":
+                extracted = _extract_image(downloaded_path)
+                context = _llm_enrich(model, "image_prompt.md", asset_type, url, extracted)
+            else:
+                extracted = _extract_website(downloaded_path)
+                context = _llm_enrich(model, "website_prompt.md", asset_type, url, extracted)
 
-        contexts.append(context.to_dict())
+            contexts.append(context.to_dict())
+        except Exception as exc:
+            # Keep processing remaining URLs even if one fails to download or extract.
+            logger.error("Failed to process %s: %s", url, exc, exc_info=True)
+            contexts.append(
+                ParsedContext(
+                    name=url,
+                    url=url,
+                    tags=["error"],
+                    content=f"Failed to process asset: {exc}",
+                    type="error",
+                ).to_dict()
+            )
 
     return contexts
 
@@ -158,7 +185,17 @@ def main() -> None:
     parser.add_argument("--working-dir", default="./working", help="Local working directory for downloads")
     parser.add_argument("--model", default=os.getenv("MODEL_NAME", "openai/gpt-4.1-mini"), help="Model id")
     parser.add_argument("--output", default="", help="Optional path to write resulting JSON")
+    parser.add_argument(
+        "--verbose",
+        action="store_true",
+        help="Enable verbose (DEBUG) logging, including model enrichment failures",
+    )
     args = parser.parse_args()
+
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    )
 
     result = parse_urls(urls=args.urls, working_dir=args.working_dir, model=args.model)
     output = json.dumps(result, indent=2, ensure_ascii=False)
