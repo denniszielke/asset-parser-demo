@@ -44,6 +44,27 @@ python main.py \
 - `--working-dir`: local download folder (created if missing)
 - `--model`: model id/deployment name
 - `--output`: optional output JSON file path
+- `--verbose`: enable DEBUG logging, including the reason behind any model enrichment fallback
+
+## Error handling and resilience
+- Each URL is processed independently. If a download or extraction step fails for one
+  URL, the error is logged and recorded as a `type: "error"` entry in the output instead
+  of aborting the whole batch.
+- If model enrichment fails (e.g. missing/invalid credentials, rate limiting, network
+  issues), the runtime logs a warning with the underlying exception and falls back to a
+  truncated version of the raw extracted content so you still get a result. Run with
+  `--verbose` to see the enrichment failure details.
+- PDF text is extracted per page with [PyMuPDF](https://pymupdf.readthedocs.io/); only the
+  first `MAX_RAW_CONTENT_CHARS` (24,000) characters of extracted content are sent to the
+  model for enrichment to stay within typical context limits. The fallback content (used
+  when enrichment fails) is truncated to the first 4,000 characters.
+
+## Verified sample
+This runtime has been tested end-to-end against a real-world multi-page PDF:
+[2026 Work Trend Index Annual Report](https://assets-c4akfrf5b4d3f4b7.z01.azurefd.net/assets/2026/05/2026_Work_Trend_Index_Annual_Report_050526-7_69fc5b1c4e265.pdf)
+(29 pages). The PDF is downloaded and its text extracted correctly across all pages; when
+no model credentials are configured, the tool still returns a usable fallback result
+instead of crashing.
 
 ## Output format
 The runtime returns a JSON list of extracted contexts:
