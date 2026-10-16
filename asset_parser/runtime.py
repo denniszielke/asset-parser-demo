@@ -1,6 +1,7 @@
 import argparse
 import hashlib
 import json
+import logging
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -8,6 +9,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from .model_client import extract_json_with_model
+
+
+logger = logging.getLogger(__name__)
+MODEL_CHUNK_CHARACTERS = 24000
 
 
 @dataclass
@@ -73,14 +78,27 @@ def _extract_website(file_path: Path) -> str:
 
 
 def _extract_pdf(file_path: Path) -> str:
-    import fitz
+    import pymupdf
 
     pages: list[str] = []
-    with fitz.open(file_path) as document:
+    empty_pages: list[int] = []
+    with pymupdf.open(file_path) as document:
+        if document.needs_pass:
+            raise ValueError(f"PDF requires a password: {file_path}")
         for index, page in enumerate(document, start=1):
             text = page.get_text("text").strip()
             if text:
                 pages.append(f"Page {index}:\n{text}")
+            else:
+                empty_pages.append(index)
+    if not pages:
+        raise ValueError(f"PDF contains no extractable text; scanned documents require OCR: {file_path}")
+    if empty_pages:
+        logger.warning(
+            "PDF pages without extractable text (blank or image-only; OCR is not performed): %s (%s)",
+            ", ".join(map(str, empty_pages)),
+            file_path,
+        )
     return "\n\n".join(pages).strip()
 
 
@@ -101,34 +119,57 @@ def _llm_enrich(
     extracted_content: str,
 ) -> ParsedContext:
     prompt = _read_prompt(prompt_name)
-    payload = {
-        "url": source_url,
-        "type": source_type,
-        "raw_content": extracted_content[:24000],
-    }
-    fallback_name = Path(urlparse(source_url).path).name or source_url
-    fallback_tags = [source_type]
-
-    try:
+    chunks = [
+        extracted_content[start:start + MODEL_CHUNK_CHARACTERS]
+        for start in range(0, len(extracted_content), MODEL_CHUNK_CHARACTERS)
+    ]
+    if not chunks:
+        raise ValueError(f"No content to enrich: {source_url}")
+    name = ""
+    tags: list[str] = []
+    summaries: list[str] = []
+    for index, chunk in enumerate(chunks, start=1):
+        payload = {
+            "url": source_url,
+            "type": source_type,
+            "raw_content": chunk,
+            "chunk_index": index,
+            "chunk_count": len(chunks),
+        }
         result = extract_json_with_model(model=model, prompt=prompt, user_payload=payload)
-        return ParsedContext(
-            name=str(result.get("name") or fallback_name),
-            url=source_url,
-            tags=[str(tag) for tag in (result.get("tags") or fallback_tags)],
-            content=str(result.get("content") or extracted_content[:4000]),
-            type=source_type,
-        )
-    except Exception:
-        return ParsedContext(
-            name=fallback_name,
-            url=source_url,
-            tags=fallback_tags,
-            content=extracted_content[:4000],
-            type=source_type,
-        )
+        if (
+            not isinstance(result, dict)
+            or not isinstance(result.get("name"), str)
+            or not result["name"].strip()
+            or not isinstance(result.get("content"), str)
+            or not result["content"].strip()
+            or not isinstance(result.get("tags"), list)
+            or len(result["tags"]) > 10
+            or any(not isinstance(tag, str) or not tag.strip() for tag in result["tags"])
+        ):
+            raise ValueError(
+                f"Invalid model context for {source_url}, chunk {index}/{len(chunks)}: "
+                "expected nonempty name/content strings and up to 10 nonempty string tags"
+            )
+        if not name:
+            name = result["name"].strip()
+        for tag in result["tags"]:
+            normalized = tag.strip().lower()
+            if normalized not in tags and len(tags) < 10:
+                tags.append(normalized)
+        summaries.append(result["content"].strip())
+    return ParsedContext(
+        name=name,
+        url=source_url,
+        tags=tags,
+        content="\n\n".join(summaries),
+        type=source_type,
+    )
 
 
-def parse_urls(urls: list[str], working_dir: str, model: str) -> list[dict[str, Any]]:
+def parse_urls(
+    urls: list[str], working_dir: str, model: str, *, enrich: bool = True
+) -> list[dict[str, Any]]:
     work = Path(working_dir).resolve()
     work.mkdir(parents=True, exist_ok=True)
 
@@ -139,13 +180,24 @@ def parse_urls(urls: list[str], working_dir: str, model: str) -> list[dict[str, 
 
         if asset_type == "pdf":
             extracted = _extract_pdf(downloaded_path)
-            context = _llm_enrich(model, "pdf_prompt.md", asset_type, url, extracted)
+            prompt_name = "pdf_prompt.md"
         elif asset_type == "image":
             extracted = _extract_image(downloaded_path)
-            context = _llm_enrich(model, "image_prompt.md", asset_type, url, extracted)
+            prompt_name = "image_prompt.md"
         else:
             extracted = _extract_website(downloaded_path)
-            context = _llm_enrich(model, "website_prompt.md", asset_type, url, extracted)
+            prompt_name = "website_prompt.md"
+
+        if enrich:
+            context = _llm_enrich(model, prompt_name, asset_type, url, extracted)
+        else:
+            context = ParsedContext(
+                name=Path(urlparse(url).path).name or url,
+                url=url,
+                tags=[asset_type],
+                content=extracted,
+                type=asset_type,
+            )
 
         contexts.append(context.to_dict())
 
@@ -158,9 +210,15 @@ def main() -> None:
     parser.add_argument("--working-dir", default="./working", help="Local working directory for downloads")
     parser.add_argument("--model", default=os.getenv("MODEL_NAME", "openai/gpt-4.1-mini"), help="Model id")
     parser.add_argument("--output", default="", help="Optional path to write resulting JSON")
+    parser.add_argument(
+        "--no-enrich", action="store_true",
+        help="Return complete extracted text/metadata without calling a model",
+    )
     args = parser.parse_args()
 
-    result = parse_urls(urls=args.urls, working_dir=args.working_dir, model=args.model)
+    result = parse_urls(
+        urls=args.urls, working_dir=args.working_dir, model=args.model, enrich=not args.no_enrich
+    )
     output = json.dumps(result, indent=2, ensure_ascii=False)
 
     if args.output:
