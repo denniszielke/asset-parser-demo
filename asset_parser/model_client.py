@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from dotenv import load_dotenv
+if TYPE_CHECKING:
+    from openai import OpenAI
 
-load_dotenv()
 
 def _foundry_token() -> str:
     from azure.identity import DefaultAzureCredential, get_bearer_token_provider
@@ -19,8 +19,10 @@ def _foundry_token() -> str:
 
 
 def create_openai_client() -> OpenAI:
+    from dotenv import load_dotenv
     from openai import OpenAI
 
+    load_dotenv()
     github_token = os.getenv("GITHUB_TOKEN", "").strip()
     foundry_endpoint = os.getenv("FOUNDRY_PROJECT_ENDPOINT", "").strip()
     foundry_api_key = os.getenv("FOUNDRY_API_KEY", "").strip()
@@ -51,5 +53,9 @@ def extract_json_with_model(model: str, prompt: str, user_payload: Any) -> dict[
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
         ],
     )
-    content = response.choices[0].message.content or "{}"
-    return json.loads(content)
+    if not response.choices or not response.choices[0].message.content:
+        raise ValueError("Model returned no JSON content")
+    result = json.loads(response.choices[0].message.content)
+    if not isinstance(result, dict):
+        raise ValueError("Model response must be a JSON object")
+    return result

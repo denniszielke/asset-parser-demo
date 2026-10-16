@@ -18,6 +18,13 @@ Each extracted context must contain:
 - `content`
 - `type`
 
+Use `--no-model` to return all locally extracted text without model credentials.
+PDF text includes source page numbers and is sorted into reading order; this is
+not OCR or guaranteed layout/table reconstruction. Password-protected and
+textless PDFs fail explicitly. Model enrichment processes every 24,000-character
+chunk and concatenates the chunk summaries; failures are not silently replaced
+with truncated source text.
+
 ## Extraction prompts
 
 ### Website prompt
@@ -36,6 +43,8 @@ Return only one JSON object with keys: name, tags, content.
 - name: concise document title
 - tags: list of up to 10 concise lowercase tags
 - content: summary of key points, entities, and actionable information found in the PDF text
+- Input may be one chunk of a longer PDF. Summarize all supplied text, including later findings and methodology, without inventing missing context.
+- Preserve important numbers, qualifications, and source page numbers when available.
 ```
 
 ### Image prompt
