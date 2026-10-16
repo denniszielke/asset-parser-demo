@@ -117,6 +117,5 @@ PDF_TEST_URL='https://assets-c4akfrf5b4d3f4b7.z01.azurefd.net/assets/2026/05/202
   python -m unittest discover -s tests -p test_pdf_extraction.py -k LivePdfTests -v
 ```
 
-GitHub Actions runs unit tests on pushes and pull requests, plus the live PDF
-check as a separate pull-request job. The live check depends on the public PDF
-remaining reachable; it exercises local text extraction, not model quality or OCR.
+The live check depends on the public PDF remaining reachable; it exercises local
+text extraction, not model quality or OCR.
